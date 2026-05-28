@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base native configurations to eliminate component flickering across Web & Native views */
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  background-color: #f8fafc; /* Tailwind slate-50 background for clean look */
+}
