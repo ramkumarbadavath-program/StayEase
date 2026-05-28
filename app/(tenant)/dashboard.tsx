@@ -2,17 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
+import { initializeRazorpayPayment } from '../../lib/razorpay';
 
 export default function TenantDashboard() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [tenantName, setTenantName] = useState('Resident');
+  const [tenantPhone, setTenantPhone] = useState('');
+  const [tenantEmail, setTenantEmail] = useState('');
+  
   const [stayDetails, setStayDetails] = useState<{
     propertyName: string;
     roomNumber: string;
     sharingType: string;
     rentAmount: number;
   } | null>(null);
+  
   const [latestInvoice, setLatestInvoice] = useState<{
     id: string;
     month: string;
@@ -29,24 +34,28 @@ export default function TenantDashboard() {
     try {
       setLoading(true);
 
-      // 1. Get current logged-in user context
+      // 1. Get current logged-in user session context
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
       if (!session) return;
 
       const userId = session.user.id;
+      setTenantEmail(session.user.email || '');
 
-      // 2. Fetch user baseline profile name data
+      // 2. Fetch user baseline profile details
       const { data: userProfile } = await supabase
         .from('users')
-        .select('name')
+        .select('name, phone')
         .eq('id', userId)
         .single();
       
-      if (userProfile) setTenantName(userProfile.name);
+      if (userProfile) {
+        setTenantName(userProfile.name);
+        setTenantPhone(userProfile.phone);
+      }
 
       // 3. Fetch active stay assignment records linked to this tenant
-      const { data: tenantRecord, error: tenantError } = await supabase
+      const { data: tenantRecord } = await supabase
         .from('tenants')
         .select('property_id, room_id, status')
         .eq('user_id', userId)
@@ -110,10 +119,31 @@ export default function TenantDashboard() {
     router.replace('/(auth)/login');
   };
 
-  const triggerPaymentGateway = (invoiceId: string, amount: number) => {
-    const message = `Initializing payment bridge for ₹${amount}. Razorpay integration module launches next step!`;
-    if (Platform.OS === 'web') alert(message);
-    else Alert.alert('Payment Initialization', message);
+  // Launches the official Razorpay processing modal wrapper
+  const handlePaymentExecution = (invoiceId: string, amount: number) => {
+    initializeRazorpayPayment(
+      invoiceId,
+      amount,
+      {
+        name: tenantName,
+        email: tenantEmail,
+        contact: tenantPhone,
+      },
+      () => {
+        // Success Callback Function
+        const msg = 'Payment captured securely! Your digital ledger invoice status has been updated.';
+        if (Platform.OS === 'web') alert(msg);
+        else Alert.alert('Success', msg);
+        
+        // Refresh the local UI metrics instantly
+        fetchTenantData();
+      },
+      (errorMessage) => {
+        // Error/Cancellation Callback Function
+        if (Platform.OS === 'web') alert(`Transaction Interrupted: ${errorMessage}`);
+        else Alert.alert('Payment Status', errorMessage);
+      }
+    );
   };
 
   if (loading) {
@@ -126,7 +156,7 @@ export default function TenantDashboard() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
-      {/* Dynamic Header Frame */}
+      {/* Header Frame */}
       <View style={{ backgroundColor: '#2563eb', paddingHorizontal: 24, paddingTop: 64, paddingBottom: 40, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View>
@@ -144,7 +174,7 @@ export default function TenantDashboard() {
 
       <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
         
-        {/* Module A: Stay Location Metrics */}
+        {/* Accommodation Specs */}
         {stayDetails ? (
           <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 20 }}>
             <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb', textTransform: 'uppercase', letterSpacing: 0.5 }}>Current Accommodation</Text>
@@ -169,7 +199,7 @@ export default function TenantDashboard() {
           </View>
         )}
 
-        {/* Module B: Monthly Rental Billing Card */}
+        {/* Rent & Razorpay Integration UI */}
         {stayDetails && (
           <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#e2e8f0', marginBottom: 20 }}>
             <Text style={{ fontSize: 16, fontWeight: '700', color: '#0f172a', marginBottom: 14 }}>Rent & Invoices</Text>
@@ -186,14 +216,14 @@ export default function TenantDashboard() {
 
                 {latestInvoice.status !== 'paid' ? (
                   <TouchableOpacity 
-                    onPress={() => triggerPaymentGateway(latestInvoice.id, latestInvoice.amount)}
+                    onPress={() => handlePaymentExecution(latestInvoice.id, latestInvoice.amount)}
                     style={{ backgroundColor: '#10b981', marginTop: 16, paddingVertical: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }}
                   >
                     <Text style={{ color: '#ffffff', fontSize: 14, fontWeight: '700' }}>Pay Securely Now</Text>
                   </TouchableOpacity>
                 ) : (
                   <View style={{ backgroundColor: '#e6f4ea', marginTop: 16, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}>
-                    <Text style={{ color: '#137333', fontSize: 13, fontWeight: '700' }}>✓ Invoice Settled successfully</Text>
+                    <Text style={{ color: '#137333', fontSize: 13, fontWeight: '700' }}>✓ Invoice Settled via Razorpay</Text>
                   </View>
                 )}
               </View>
